@@ -4,7 +4,7 @@ import Scheme
 import Text.ParserCombinators.Parsec hiding (spaces)
 import System.Environment
 import Numeric
-import Data.Ratio
+import GHC.Real
 import Data.Complex
 
 symbol :: Parser Char
@@ -110,7 +110,7 @@ parseRatio :: Parser LispVal
 parseRatio = do x <- many1 digit
                 char '/'
                 y <- many1 digit
-                return $ Ratio ((read x) % (read y))
+                return $ Ratio (read x % read y)
 
 toDouble :: LispVal -> Double
 toDouble (Float f) = f
@@ -178,7 +178,7 @@ showVal (Character contents)   = "#\"" ++ show contents
 showVal (Atom name)            = name
 showVal (Number contents)      = show contents
 showVal (Float contents)       = show contents
--- showVal (Ratio (x :% y))       = show y
+showVal (Ratio (x :% y))       = show x ++ "/" ++ show y
 showVal (Complex (r :+ i))     = show r ++ "+" ++ show i ++ "i"
 showVal (Bool True)            = "#t"
 showVal (Bool False)           = "#f"
