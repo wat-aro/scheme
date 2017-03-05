@@ -219,7 +219,10 @@ primitives = [("+", numericBinop (+)),
               ("/", numericBinop div),
               ("mod", numericBinop mod),
               ("quotient", numericBinop quot),
-              ("remainder", numericBinop rem)]
+              ("remainder", numericBinop rem),
+              ("symbol?", isSymbol),
+              ("symbol->string", symbolToString),
+              ("string->symbol", stringToSymbol)]
 
 numericBinop :: (Integer -> Integer -> Integer) -> [LispVal] -> LispVal
 numericBinop op params = Number $ foldl1 op $ map unpackNum params
@@ -227,6 +230,19 @@ numericBinop op params = Number $ foldl1 op $ map unpackNum params
 unpackNum :: LispVal -> Integer
 unpackNum (Number n) = n
 unpackNum _ = 0
+
+isSymbol :: [LispVal] -> LispVal
+isSymbol [] = Bool False
+isSymbol [Atom _] = Bool True
+isSymbol _ = Bool False
+
+symbolToString :: [LispVal] -> LispVal
+symbolToString [Atom x] = String x
+symbolToString xs = error $ "ERROR: wrong number of arguments (required 1, got " ++ show (length xs) ++ ")"
+
+stringToSymbol :: [LispVal] -> LispVal
+stringToSymbol [String x] = Atom x
+stringToSymbol xs = error $ "ERROR: wrong number of arguments (required 1, got " ++ show (length xs) ++ ")"
 
 main :: IO ()
 main = getArgs >>= print . eval . readExpr . head
