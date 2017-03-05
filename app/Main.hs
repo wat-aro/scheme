@@ -6,14 +6,15 @@ import System.Environment
 import Numeric
 import GHC.Real
 import Data.Complex
+import Control.Monad.Error
 
 symbol :: Parser Char
 symbol = oneOf "!$%&|*+-/:<=>?@^_~"
 
-readExpr :: String -> LispVal
+readExpr :: String -> ThrowsError LispVal
 readExpr input = case parse parseExpr "lisp" input of
-  Left err -> String $ "No match: " ++ show err
-  Right val -> val
+  Left err -> throwError $ Parser err
+  Right val -> return val
 
 spaces :: Parser ()
 spaces = skipMany1 space
@@ -198,21 +199,24 @@ showVal (DottedList head tail) = "(" ++ unwordsList head ++ " . " ++ showVal tai
 unwordsList :: [LispVal] -> String
 unwordsList = unwords . map showVal
 
-eval :: LispVal -> LispVal
-eval val@(String _) = val
-eval val@(Character _) = val
-eval val@(Number _) = val
-eval val@(Float _) = val
-eval val@(Ratio _) = val
-eval val@(Complex _) = val
-eval val@(Bool _) = val
-eval (List [Atom "quote", val]) = val
-eval (List (Atom func : args)) = apply func $ map eval args
+eval :: LispVal -> ThrowsError LispVal
+eval val@(String _) = return val
+eval val@(Character _) = return val
+eval val@(Number _) = return val
+eval val@(Float _) = return val
+eval val@(Ratio _) = return val
+eval val@(Complex _) = return val
+eval val@(Bool _) = return val
+eval (List [Atom "quote", val]) = return val
+eval (List (Atom func : args)) = mapM eval args >>= apply func
+eval badForm = throwError $ BadSpecialForm "Unrecognized special form" badForm
 
-apply :: String -> [LispVal] -> LispVal
-apply func args = maybe (Bool False) ($ args) $ lookup func primitives
+apply :: String -> [LispVal] -> ThrowsError LispVal
+apply func args = maybe (throwError $ NotFunction "Unrecognized primitive function args" func)
+                        ($ args)
+                        (lookup func primitives)
 
-primitives :: [(String, [LispVal] -> LispVal)]
+primitives :: [(String, [LispVal] -> ThrowsError LispVal)]
 primitives = [("+", numericBinop (+)),
               ("-", numericBinop (-)),
               ("*", numericBinop (*)),
@@ -224,25 +228,69 @@ primitives = [("+", numericBinop (+)),
               ("symbol->string", symbolToString),
               ("string->symbol", stringToSymbol)]
 
-numericBinop :: (Integer -> Integer -> Integer) -> [LispVal] -> LispVal
-numericBinop op params = Number $ foldl1 op $ map unpackNum params
+numericBinop :: (Integer -> Integer -> Integer) -> [LispVal] -> ThrowsError LispVal
+numericBinop op singleVal@[_] = throwError $ NumArgs 2 singleVal
+numericBinop op params = mapM unpackNum params >>= return . Number . foldl1 op
 
-unpackNum :: LispVal -> Integer
-unpackNum (Number n) = n
-unpackNum _ = 0
+unpackNum :: LispVal -> ThrowsError Integer
+unpackNum (Number n) = return n
+unpackNum (String n) = let parsed = reads n
+                       in if null parsed
+                          then throwError $ TypeMismatch "number" $ String n
+                          else return $ fst $ head parsed
+unpackNum (List [n]) = unpackNum n
+unpackNum notNum = throwError $ TypeMismatch "number" notNum
 
-isSymbol :: [LispVal] -> LispVal
-isSymbol [] = Bool False
-isSymbol [Atom _] = Bool True
-isSymbol _ = Bool False
+isSymbol :: [LispVal] -> ThrowsError LispVal
+isSymbol [Atom _] = return $ Bool True
+isSymbol xs = case length xs of
+                1 -> return $ Bool False
+                n -> throwError $ WrongNumberOfArgs "1" $ show n
 
-symbolToString :: [LispVal] -> LispVal
-symbolToString [Atom x] = String x
-symbolToString xs = error $ "ERROR: wrong number of arguments (required 1, got " ++ show (length xs) ++ ")"
+symbolToString :: [LispVal] -> ThrowsError LispVal
+symbolToString [Atom x] = return $ String x
+symbolToString [notSym] = throwError $ TypeMismatch "symbol" notSym
+symbolToString xs = throwError $ WrongNumberOfArgs "1" $ show . length $ xs
 
-stringToSymbol :: [LispVal] -> LispVal
-stringToSymbol [String x] = Atom x
-stringToSymbol xs = error $ "ERROR: wrong number of arguments (required 1, got " ++ show (length xs) ++ ")"
+stringToSymbol :: [LispVal] -> ThrowsError LispVal
+stringToSymbol [String x] = return $ Atom x
+stringToSymbol [notString] = throwError $ TypeMismatch "string" notString
+stringToSymbol xs = throwError $ WrongNumberOfArgs "1" $ show . length $ xs
+
+data LispError = NumArgs Integer [LispVal]
+               | TypeMismatch String LispVal
+               | Parser ParseError
+               | BadSpecialForm String LispVal
+               | NotFunction String String
+               | UnboundVar String String
+               | WrongNumberOfArgs String String
+               | Default String
+
+showError :: LispError -> String
+showError (UnboundVar message varname) = message ++ ": " ++ varname
+showError (BadSpecialForm message form) = message ++ ": " ++ show form
+showError (NotFunction message func) = message ++ ": " ++ show func
+showError (NumArgs expected found) = "Expected " ++ show expected
+                                     ++ " args: found valued " ++ unwordsList found
+showError (TypeMismatch expected found) = "Invalid type: expected " ++ expected ++ ", found " ++ show found
+showError (Parser parseErr) = "Parse error at " ++ show parseErr
+showError (WrongNumberOfArgs expected actual) = "Wrong number of arguments: requires " ++ expected ++ ", but got " ++ actual
+
+instance Show LispError where show = showError
+
+instance Error LispError where
+  noMsg = Default "An error has occurred"
+  strMsg = Default
+
+type ThrowsError = Either LispError
+
+trapError action = catchError action (return . show)
+
+extractValue :: ThrowsError a -> a
+extractValue (Right val) = val
 
 main :: IO ()
-main = getArgs >>= print . eval . readExpr . head
+main = do
+  args <- getArgs
+  let evaled = fmap show $ readExpr (head args) >>= eval
+  putStrLn $ extractValue $ trapError evaled
