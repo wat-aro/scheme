@@ -215,6 +215,17 @@ eval (List [Atom "if", pred, conseq, alt]) =
      case result of
        Bool False -> eval alt
        _ -> eval conseq
+eval (List ((Atom "cond"):cs)) = do
+  b <- (liftM (take 1 . dropWhile f) $ mapM condClause cs) >>= cdr
+  car [b] >>= eval
+  where condClause (List [p, b]) = do q <- eval p
+                                      case q of
+                                        Bool _ -> return $ List [q, b]
+                                        _      -> throwError $ TypeMismatch "bool" q
+        condClause v             = throwError $ TypeMismatch "(pred body)" v
+        f                        = \(List [p, b]) -> case p of
+                                                       (Bool False) -> True
+                                                       _            -> False
 eval (List (Atom func : args)) = mapM eval args >>= apply func
 eval badForm = throwError $ BadSpecialForm "Unrecognized special form" badForm
 
