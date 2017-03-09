@@ -223,9 +223,9 @@ eval (List ((Atom "cond"):cs)) = do
                                         Bool _ -> return $ List [q, b]
                                         _      -> throwError $ TypeMismatch "bool" q
         condClause v             = throwError $ TypeMismatch "(pred body)" v
-        f                        = \(List [p, b]) -> case p of
-                                                       (Bool False) -> True
-                                                       _            -> False
+        f (List [p, b])          =  case p of
+                                      (Bool False) -> True
+                                      _            -> False
 eval (List (Atom func : args)) = mapM eval args >>= apply func
 eval badForm = throwError $ BadSpecialForm "Unrecognized special form" badForm
 
