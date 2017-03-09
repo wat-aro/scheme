@@ -31,6 +31,7 @@ data LispVal = Atom String
              | Character Char
              | Ratio Rational
              | Complex (Complex Double)
+  deriving (Eq)
 
 parseString :: Parser LispVal
 parseString = do char '"'
@@ -226,6 +227,18 @@ eval (List ((Atom "cond"):cs)) = do
         f (List [p, b])          =  case p of
                                       (Bool False) -> True
                                       _            -> False
+eval form@(List (Atom "case":key:clauses)) = do
+  if null clauses
+    then throwError $ BadSpecialForm "no true clause in case expression: " form
+    else case head clauses of
+           List (Atom "else" : exprs) -> mapM eval exprs >>= return . last
+           List ((List datums) : exprs) -> do
+             result <- eval key
+             equality <- mapM (\x -> eqv [result, x]) datums
+             if (Bool True) `elem` equality
+               then mapM eval exprs >>= return . last
+               else eval $ List (Atom "case" : key : tail clauses)
+           _ -> throwError $ BadSpecialForm "ill-formed case expression: " form
 eval (List (Atom func : args)) = mapM eval args >>= apply func
 eval badForm = throwError $ BadSpecialForm "Unrecognized special form" badForm
 
