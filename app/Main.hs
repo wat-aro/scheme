@@ -328,11 +328,35 @@ stringToSymbol [String x] = return $ Atom x
 stringToSymbol [notString] = throwError $ TypeMismatch "string" notString
 stringToSymbol xs = throwError $ WrongNumberOfArgs "1" $ show . length $ xs
 
+isString :: [LispVal]  -> ThrowsError LispVal
+isString [String x] = return $ Bool True
+isString [notString] = return $ Bool False
+isString badArgList = throwError $ NumArgs 1 badArgList
+
+makeString :: [LispVal] -> ThrowsError LispVal
+makeString [Number n] = return $ String $ replicate (fromIntegral n) ' '
+makeString [notNumber] = throwError $ TypeMismatch "number" notNumber
+makeString [Number n, Character c] = return $ String $ replicate (fromIntegral n) c
+makeString [notNumber, _] = throwError $ TypeMismatch "number" notNumber
+makeString [_, notChar] = throwError $ TypeMismatch "char" notChar
+makeString badArgList = throwError $ NumArgs 2 badArgList
+
+stringLength :: [LispVal] -> ThrowsError LispVal
+stringLength [String s] = return $ Number $ fromIntegral . length $ s
+stringLength [notString] = throwError $ TypeMismatch "string" notString
+stringLength badArgList = throwError $ NumArgs 1 badArgList
+
+stringLef :: [LispVal] -> ThrowsError LispVal
+stringLef [String s, Number n] = return $ Character $ s !! (fromIntegral n)
+stringLef [notString, _] = throwError $ TypeMismatch "string" notString
+stringLef [_, notNumber] = throwError $ TypeMismatch "number" notNumber
+stringLef badArgList = throwError $ NumArgs 2 badArgList
+
 car :: [LispVal] -> ThrowsError LispVal
 car [List (x:xs)] = return x
 car [DottedList (x:xs) _] =return x
 car [badArg] = throwError $ TypeMismatch "pair" badArg
-car badArgList =throwError $ NumArgs 1 badArgList
+car badArgList = throwError $ NumArgs 1 badArgList
 
 cdr :: [LispVal] -> ThrowsError LispVal
 cdr [List (x:xs)] = return $ List xs
