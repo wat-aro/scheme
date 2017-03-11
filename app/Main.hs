@@ -8,7 +8,7 @@ import System.Environment
 import Numeric
 import GHC.Real
 import Data.Complex
-import Control.Monad.Error
+import Control.Monad.Except
 
 symbol :: Parser Char
 symbol = oneOf "!$%&|*+-/:<=>?@^_~"
@@ -433,10 +433,6 @@ showError (Parser parseErr) = "Parse error at " ++ show parseErr
 showError (WrongNumberOfArgs expected actual) = "Wrong number of arguments: requires " ++ expected ++ ", but got " ++ actual
 
 instance Show LispError where show = showError
-
-instance Error LispError where
-  noMsg = Default "An error has occurred"
-  strMsg = Default
 
 type ThrowsError = Either LispError
 
