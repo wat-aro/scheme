@@ -216,8 +216,8 @@ eval (List [Atom "if", pred, conseq, alt]) =
      case result of
        Bool False -> eval alt
        _ -> eval conseq
-eval (List ((Atom "cond"):cs)) = do
-  b <- (liftM (take 1 . dropWhile f) $ mapM condClause cs) >>= cdr
+eval (List (Atom "cond":cs)) = do
+  b <- fmap (take 1 . dropWhile f) (mapM condClause cs) >>= cdr
   car [b] >>= eval
   where condClause (List [p, b]) = do q <- eval p
                                       case q of
@@ -227,16 +227,16 @@ eval (List ((Atom "cond"):cs)) = do
         f (List [p, b])          =  case p of
                                       (Bool False) -> True
                                       _            -> False
-eval form@(List (Atom "case":key:clauses)) = do
+eval form@(List (Atom "case":key:clauses)) =
   if null clauses
     then throwError $ BadSpecialForm "no true clause in case expression: " form
     else case head clauses of
-           List (Atom "else" : exprs) -> mapM eval exprs >>= return . last
-           List ((List datums) : exprs) -> do
+           List (Atom "else" : exprs) -> fmap last (mapM eval exprs)
+           List (List datums : exprs) -> do
              result <- eval key
              equality <- mapM (\x -> eqv [result, x]) datums
-             if (Bool True) `elem` equality
-               then mapM eval exprs >>= return . last
+             if Bool True `elem` equality
+               then fmap last (mapM eval exprs)
                else eval $ List (Atom "case" : key : tail clauses)
            _ -> throwError $ BadSpecialForm "ill-formed case expression: " form
 eval (List (Atom func : args)) = mapM eval args >>= apply func
@@ -334,11 +334,13 @@ isString [notString] = return $ Bool False
 isString badArgList = throwError $ NumArgs 1 badArgList
 
 makeString :: [LispVal] -> ThrowsError LispVal
-makeString [Number n] = return $ String $ replicate (fromIntegral n) ' '
+makeString [Number n] = makeString [Number n, Character ' ']
 makeString [notNumber] = throwError $ TypeMismatch "number" notNumber
+
 makeString [Number n, Character c] = return $ String $ replicate (fromIntegral n) c
-makeString [notNumber, _] = throwError $ TypeMismatch "number" notNumber
-makeString [_, notChar] = throwError $ TypeMismatch "char" notChar
+makeString [notNumber, Character _] = throwError $ TypeMismatch "number" notNumber
+makeString [Number _, notChar] = throwError $ TypeMismatch "char" notChar
+makeString [notNumber, notChar] = throwError $ TypeMismatch "number" notNumber
 makeString badArgList = throwError $ NumArgs 2 badArgList
 
 stringLength :: [LispVal] -> ThrowsError LispVal
@@ -347,9 +349,10 @@ stringLength [notString] = throwError $ TypeMismatch "string" notString
 stringLength badArgList = throwError $ NumArgs 1 badArgList
 
 stringLef :: [LispVal] -> ThrowsError LispVal
-stringLef [String s, Number n] = return $ Character $ s !! (fromIntegral n)
-stringLef [notString, _] = throwError $ TypeMismatch "string" notString
-stringLef [_, notNumber] = throwError $ TypeMismatch "number" notNumber
+stringLef [String s, Number n] = return $ Character $ s !! fromIntegral n
+stringLef [notString, Number _] = throwError $ TypeMismatch "string" notString
+stringLef [String _, notNumber] = throwError $ TypeMismatch "number" notNumber
+stringLef [notString, notNumber] = throwError $ TypeMismatch "string" notString
 stringLef badArgList = throwError $ NumArgs 2 badArgList
 
 car :: [LispVal] -> ThrowsError LispVal
@@ -378,7 +381,7 @@ eqv [Number arg1, Number arg2] = return $ Bool $ arg1 == arg2
 eqv [String arg1, String arg2] = return $ Bool $ arg1 == arg2
 eqv [Atom arg1, Atom arg2] = return $ Bool $ arg1 == arg2
 eqv [DottedList xs x, DottedList ys y] = eqv [List $ xs ++ [x], List $ ys ++ [y]]
-eqv [List arg1, List arg2] = return $ Bool $ length arg1 == length arg2 && (all eqvPair $ zip arg1 arg2)
+eqv [List arg1, List arg2] = return $ Bool $ length arg1 == length arg2 && all eqvPair (zip arg1 arg2)
   where eqvPair (x1, x2) = case eqv [x1, x2] of
           Left err -> False
           Right (Bool val) -> val
@@ -405,7 +408,7 @@ equal [arg1, arg2] = do
 equal badArgList = throwError $ NumArgs 2 badArgList
 
 eqvList :: ([LispVal] -> ThrowsError LispVal) -> [LispVal] -> ThrowsError LispVal
-eqvList eqvFunc [List arg1, List arg2] = return $ Bool $ length arg1 == length arg2 && (all eqvPair $ zip arg1 arg2)
+eqvList eqvFunc [List arg1, List arg2] = return $ Bool $ length arg1 == length arg2 && all eqvPair (zip arg1 arg2)
   where eqvPair (x1, x2) = case eqvFunc [x1, x2] of
           Left err -> False
           Right (Bool val) -> val
