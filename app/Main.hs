@@ -293,8 +293,8 @@ primitives = [("+", numericBinop (+)),
               ]
 
 numericBinop :: (Integer -> Integer -> Integer) -> [LispVal] -> ThrowsError LispVal
+numericBinop _ singleVal@[args] = throwError $ NumArgs 2 singleVal
 numericBinop op params = fmap (Number . foldl1 op) (mapM unpackNum params)
-numericBinop _ singleVal@[_] = throwError $ NumArgs 2 singleVal
 
 boolBinop :: (LispVal -> ThrowsError a) -> (a -> a -> Bool) -> [LispVal]  -> ThrowsError LispVal
 boolBinop unpacker op args = if length args /= 2
