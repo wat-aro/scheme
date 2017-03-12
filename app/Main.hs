@@ -7,6 +7,7 @@ import Text.ParserCombinators.Parsec hiding (spaces)
 import System.Environment
 import Numeric
 import GHC.Real
+import Data.Char
 import Data.Complex
 import Control.Monad.Except
 
@@ -188,7 +189,7 @@ instance Show LispVal where show = showVal
 
 showVal :: LispVal -> String
 showVal (String contents)      = "\"" ++ contents ++ "\""
-showVal (Character contents)   = "#\"" ++ show contents
+showVal (Character contents)   = "#\\" ++ show contents
 showVal (Atom name)            = name
 showVal (Number contents)      = show contents
 showVal (Float contents)       = show contents
@@ -255,9 +256,8 @@ primitives = [("+", numericBinop (+)),
               ("mod", numericBinop mod),
               ("quotient", numericBinop quot),
               ("remainder", numericBinop rem),
-              ("symbol?", isSymbol),
+              ("symbol?", isSym),
               ("symbol->string", symbolToString),
-              ("string->symbol", stringToSymbol),
               ("=", numBoolBinop (==)),
               ("<", numBoolBinop (<)),
               (">", numBoolBinop (>)),
@@ -265,11 +265,25 @@ primitives = [("+", numericBinop (+)),
               (">=", numBoolBinop (>=)),
               ("&&", boolBoolBinop (&&)),
               ("||", boolBoolBinop (||)),
+              ("string?", isString),
+              ("make-string", makeString),
+              ("string-length", stringLength),
+              ("string-ref", stringLef),
+              ("string->symbol", stringToSymbol),
               ("string=?", strBoolBinop (==)),
               ("string<?", strBoolBinop (<)),
               ("string>?", strBoolBinop (>)),
               ("string<=?", strBoolBinop (<=)),
               ("string>=?", strBoolBinop (>=)),
+              ("string-ci=?", strCiBinop (==)),
+              ("string-ci<?", strCiBinop (<)),
+              ("string-ci>?", strCiBinop (>)),
+              ("string-ci<=?", strCiBinop (<=)),
+              ("string-ci>=?", strCiBinop (>=)),
+              ("substring", subString),
+              ("string-append", stringAppend),
+              ("string->list", stringList),
+              ("list->string", listString),
               ("car", car),
               ("cdr", cdr),
               ("cons", cons),
@@ -288,6 +302,43 @@ boolBinop unpacker op args = if length args /= 2
                              else do left <- unpacker $ head args
                                      right <- unpacker $ args !! 1
                                      return $ Bool $ left `op` right
+
+strCiBinop :: (String -> String -> Bool) -> [LispVal]  -> ThrowsError LispVal
+strCiBinop op [String x, String y] = return $ Bool $ map toLower x `op` map toLower y
+strCiBinop op [notStr, String y] = throwError $ TypeMismatch "string" notStr
+strCiBinop op [String x, notStr] = throwError $ TypeMismatch "string" notStr
+strCiBinop op argList = throwError $ NumArgs 2 argList
+
+subString :: [LispVal] -> ThrowsError LispVal
+subString [String str, Number start, Number end]
+  | start <= end = return $ String $ take (fromIntegral (end - start)) $ drop (fromIntegral start) str
+  | start > end = throwError $ Otherwise $ "end argument (" ++ show end ++ ") must be greater than or equal to the start argument (" ++ show start ++ ")"
+subString [notStr, Number _, Number _] = throwError $ TypeMismatch "string" notStr
+subString [String _, notNum, _] = throwError $ TypeMismatch "number" notNum
+subString [_, _, notNum] = throwError $ TypeMismatch "number" notNum
+subString argList = throwError $ NumArgs 3 argList
+
+stringAppend :: [LispVal] -> ThrowsError LispVal
+stringAppend [] = return $ String ""
+stringAppend args = foldM stringAppend' (String "") args
+
+stringAppend' :: LispVal -> LispVal -> ThrowsError LispVal
+stringAppend' (String x) (String y) = return $ String $ x ++ y
+stringAppend' (String x) notStr = throwError $ TypeMismatch "string" notStr
+stringAppend' notStr _ = throwError $ TypeMismatch "string" notStr
+
+stringList :: [LispVal] -> ThrowsError LispVal
+stringList [String s] = return $ List $ fmap Character s
+stringList [notStr] = throwError $ TypeMismatch "string" notStr
+stringList argList = throwError $ WrongNumberOfArgs "1" $ show . length $ argList
+
+listString :: [LispVal] -> ThrowsError LispVal
+listString [list@(List xs)] = if all isCharacter xs
+                       then return $ String $ fmap (\(Character c) -> c) xs
+                       else throwError $ TypeMismatch "character list" list
+  where isCharacter (Character _) = True
+        isCharacter _ = False
+listString argList = throwError $ WrongNumberOfArgs "1" $ show . length $ argList
 
 numBoolBinop = boolBinop unpackNum
 strBoolBinop = boolBinop unpackStr
@@ -312,11 +363,11 @@ unpackBool :: LispVal -> ThrowsError Bool
 unpackBool (Bool b) = return b
 unpackBool notBool = throwError $ TypeMismatch "boolean" notBool
 
-isSymbol :: [LispVal] -> ThrowsError LispVal
-isSymbol [Atom _] = return $ Bool True
-isSymbol xs = case length xs of
-                1 -> return $ Bool False
-                n -> throwError $ WrongNumberOfArgs "1" $ show n
+isSym :: [LispVal] -> ThrowsError LispVal
+isSym [Atom _] = return $ Bool True
+isSym xs = case length xs of
+             1 -> return $ Bool False
+             n -> throwError $ WrongNumberOfArgs "1" $ show n
 
 symbolToString :: [LispVal] -> ThrowsError LispVal
 symbolToString [Atom x] = return $ String x
@@ -329,7 +380,7 @@ stringToSymbol [notString] = throwError $ TypeMismatch "string" notString
 stringToSymbol xs = throwError $ WrongNumberOfArgs "1" $ show . length $ xs
 
 isString :: [LispVal]  -> ThrowsError LispVal
-isString [String x] = return $ Bool True
+isString [String _] = return $ Bool True
 isString [notString] = return $ Bool False
 isString badArgList = throwError $ NumArgs 1 badArgList
 
@@ -420,7 +471,7 @@ data LispError = NumArgs Integer [LispVal]
                | NotFunction String String
                | UnboundVar String String
                | WrongNumberOfArgs String String
-               | Default String
+               | Otherwise String
 
 showError :: LispError -> String
 showError (UnboundVar message varname) = message ++ ": " ++ varname
@@ -431,6 +482,7 @@ showError (NumArgs expected found) = "Expected " ++ show expected
 showError (TypeMismatch expected found) = "Invalid type: expected " ++ expected ++ ", found " ++ show found
 showError (Parser parseErr) = "Parse error at " ++ show parseErr
 showError (WrongNumberOfArgs expected actual) = "Wrong number of arguments: requires " ++ expected ++ ", but got " ++ actual
+showError (Otherwise message) = message
 
 instance Show LispError where show = showError
 
