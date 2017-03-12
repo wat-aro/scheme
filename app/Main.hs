@@ -2,7 +2,7 @@
 
 module Main where
 
-import Scheme
+import Scheme()
 import Text.ParserCombinators.Parsec hiding (spaces)
 import System.Environment
 import Numeric
@@ -225,7 +225,7 @@ eval (List (Atom "cond":cs)) = do
                                         Bool _ -> return $ List [q, b]
                                         _      -> throwError $ TypeMismatch "bool" q
         condClause v             = throwError $ TypeMismatch "(pred body)" v
-        f (List [p, b])          =  case p of
+        f (List [p, _])          =  case p of
                                       (Bool False) -> True
                                       _            -> False
 eval form@(List (Atom "case":key:clauses)) =
@@ -293,8 +293,8 @@ primitives = [("+", numericBinop (+)),
               ]
 
 numericBinop :: (Integer -> Integer -> Integer) -> [LispVal] -> ThrowsError LispVal
-numericBinop op singleVal@[_] = throwError $ NumArgs 2 singleVal
 numericBinop op params = fmap (Number . foldl1 op) (mapM unpackNum params)
+numericBinop _ singleVal@[_] = throwError $ NumArgs 2 singleVal
 
 boolBinop :: (LispVal -> ThrowsError a) -> (a -> a -> Bool) -> [LispVal]  -> ThrowsError LispVal
 boolBinop unpacker op args = if length args /= 2
@@ -305,9 +305,9 @@ boolBinop unpacker op args = if length args /= 2
 
 strCiBinop :: (String -> String -> Bool) -> [LispVal]  -> ThrowsError LispVal
 strCiBinop op [String x, String y] = return $ Bool $ map toLower x `op` map toLower y
-strCiBinop op [notStr, String y] = throwError $ TypeMismatch "string" notStr
-strCiBinop op [String x, notStr] = throwError $ TypeMismatch "string" notStr
-strCiBinop op argList = throwError $ NumArgs 2 argList
+strCiBinop _ [notStr, String y] = throwError $ TypeMismatch "string" notStr
+strCiBinop _ [String x, notStr] = throwError $ TypeMismatch "string" notStr
+strCiBinop _ argList = throwError $ NumArgs 2 argList
 
 subString :: [LispVal] -> ThrowsError LispVal
 subString [String str, Number start, Number end]
@@ -324,7 +324,7 @@ stringAppend args = foldM stringAppend' (String "") args
 
 stringAppend' :: LispVal -> LispVal -> ThrowsError LispVal
 stringAppend' (String x) (String y) = return $ String $ x ++ y
-stringAppend' (String x) notStr = throwError $ TypeMismatch "string" notStr
+stringAppend' (String _) notStr = throwError $ TypeMismatch "string" notStr
 stringAppend' notStr _ = throwError $ TypeMismatch "string" notStr
 
 stringList :: [LispVal] -> ThrowsError LispVal
@@ -381,7 +381,7 @@ stringToSymbol xs = throwError $ WrongNumberOfArgs "1" $ show . length $ xs
 
 isString :: [LispVal]  -> ThrowsError LispVal
 isString [String _] = return $ Bool True
-isString [notString] = return $ Bool False
+isString [_] = return $ Bool False
 isString badArgList = throwError $ NumArgs 1 badArgList
 
 makeString :: [LispVal] -> ThrowsError LispVal
@@ -391,7 +391,7 @@ makeString [notNumber] = throwError $ TypeMismatch "number" notNumber
 makeString [Number n, Character c] = return $ String $ replicate (fromIntegral n) c
 makeString [notNumber, Character _] = throwError $ TypeMismatch "number" notNumber
 makeString [Number _, notChar] = throwError $ TypeMismatch "char" notChar
-makeString [notNumber, notChar] = throwError $ TypeMismatch "number" notNumber
+makeString [notNumber, _] = throwError $ TypeMismatch "number" notNumber
 makeString badArgList = throwError $ NumArgs 2 badArgList
 
 stringLength :: [LispVal] -> ThrowsError LispVal
@@ -403,18 +403,18 @@ stringLef :: [LispVal] -> ThrowsError LispVal
 stringLef [String s, Number n] = return $ Character $ s !! fromIntegral n
 stringLef [notString, Number _] = throwError $ TypeMismatch "string" notString
 stringLef [String _, notNumber] = throwError $ TypeMismatch "number" notNumber
-stringLef [notString, notNumber] = throwError $ TypeMismatch "string" notString
+stringLef [notString, _] = throwError $ TypeMismatch "string" notString
 stringLef badArgList = throwError $ NumArgs 2 badArgList
 
 car :: [LispVal] -> ThrowsError LispVal
-car [List (x:xs)] = return x
-car [DottedList (x:xs) _] =return x
+car [List (x:_)] = return x
+car [DottedList (x:_) _] =return x
 car [badArg] = throwError $ TypeMismatch "pair" badArg
 car badArgList = throwError $ NumArgs 1 badArgList
 
 cdr :: [LispVal] -> ThrowsError LispVal
-cdr [List (x:xs)] = return $ List xs
-cdr [DottedList [xs] x] = return x
+cdr [List (_:xs)] = return $ List xs
+cdr [DottedList [_] x] = return x
 cdr [DottedList (_:xs) x] = return $ DottedList xs x
 cdr [badArg] = throwError $ TypeMismatch "pair" badArg
 cdr badArgList = throwError $ NumArgs 1 badArgList
@@ -434,7 +434,7 @@ eqv [Atom arg1, Atom arg2] = return $ Bool $ arg1 == arg2
 eqv [DottedList xs x, DottedList ys y] = eqv [List $ xs ++ [x], List $ ys ++ [y]]
 eqv [List arg1, List arg2] = return $ Bool $ length arg1 == length arg2 && all eqvPair (zip arg1 arg2)
   where eqvPair (x1, x2) = case eqv [x1, x2] of
-          Left err -> False
+          Left _ -> False
           Right (Bool val) -> val
 eqv [_, _] = return $ Bool False
 eqv badArgList = throwError $ NumArgs 2 badArgList
@@ -449,7 +449,7 @@ unpackEquals arg1 arg2 (AnyUnpacker unpacker) =
   `catchError` const (return False)
 
 equal :: [LispVal] -> ThrowsError LispVal
-equal [l1@(List arg1), l2@(List arg2)] = eqvList equal [l1, l2]
+equal [l1@(List _), l2@(List _)] = eqvList equal [l1, l2]
 equal [DottedList xs x, DottedList ys y] = equal [List $ xs ++ [x], List $ ys ++ [y]]
 equal [arg1, arg2] = do
   primitiveEquals <- or <$> mapM (unpackEquals arg1 arg2)
@@ -461,7 +461,7 @@ equal badArgList = throwError $ NumArgs 2 badArgList
 eqvList :: ([LispVal] -> ThrowsError LispVal) -> [LispVal] -> ThrowsError LispVal
 eqvList eqvFunc [List arg1, List arg2] = return $ Bool $ length arg1 == length arg2 && all eqvPair (zip arg1 arg2)
   where eqvPair (x1, x2) = case eqvFunc [x1, x2] of
-          Left err -> False
+          Left _ -> False
           Right (Bool val) -> val
 
 data LispError = NumArgs Integer [LispVal]
