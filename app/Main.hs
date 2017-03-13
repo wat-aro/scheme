@@ -9,6 +9,8 @@ import Numeric
 import GHC.Real
 import Data.Char
 import Data.Complex
+import Data.IORef
+import Data.Maybe
 import Control.Monad.Except
 import System.IO
 
@@ -23,6 +25,8 @@ readExpr input = case parse parseExpr "lisp" input of
 spaces :: Parser ()
 spaces = skipMany1 space
 
+-- Type
+
 data LispVal = Atom String
              | List [LispVal]
              | DottedList [LispVal] LispVal
@@ -34,6 +38,8 @@ data LispVal = Atom String
              | Ratio Rational
              | Complex (Complex Double)
   deriving (Eq)
+
+-- Parser
 
 parseString :: Parser LispVal
 parseString = do char '"'
@@ -186,6 +192,8 @@ parseExpr =     parseAtom
                    char ')'
                    return x
 
+-- Show
+
 instance Show LispVal where show = showVal
 
 showVal :: LispVal -> String
@@ -204,24 +212,24 @@ showVal (DottedList head tail) = "(" ++ unwordsList head ++ " . " ++ showVal tai
 unwordsList :: [LispVal] -> String
 unwordsList = unwords . map showVal
 
-eval :: LispVal -> ThrowsError LispVal
-eval val@(String _) = return val
-eval val@(Character _) = return val
-eval val@(Number _) = return val
-eval val@(Float _) = return val
-eval val@(Ratio _) = return val
-eval val@(Complex _) = return val
-eval val@(Bool _) = return val
-eval (List [Atom "quote", val]) = return val
-eval (List [Atom "if", pred, conseq, alt]) =
-  do result <- eval pred
+eval :: Env -> LispVal -> IOThrowsError LispVal
+eval _ val@(String _) = return val
+eval _ val@(Character _) = return val
+eval _ val@(Number _) = return val
+eval _ val@(Float _) = return val
+eval _ val@(Ratio _) = return val
+eval _ val@(Complex _) = return val
+eval _ val@(Bool _) = return val
+eval _ (List [Atom "quote", val]) = return val
+eval env (List [Atom "if", pred, conseq, alt]) =
+  do result <- eval env pred
      case result of
-       Bool False -> eval alt
-       _ -> eval conseq
-eval (List (Atom "cond":cs)) = do
+       Bool False -> eval env alt
+       _ -> eval env conseq
+eval env (List (Atom "cond":cs)) = do
   b <- fmap (take 1 . dropWhile f) (mapM condClause cs) >>= cdr
-  car [b] >>= eval
-  where condClause (List [p, b]) = do q <- eval p
+  car [b] >>= eval env
+  where condClause (List [p, b]) = do q <- eval env p
                                       case q of
                                         Bool _ -> return $ List [q, b]
                                         _      -> throwError $ TypeMismatch "bool" q
@@ -229,20 +237,24 @@ eval (List (Atom "cond":cs)) = do
         f (List [p, _])          =  case p of
                                       (Bool False) -> True
                                       _            -> False
-eval form@(List (Atom "case":key:clauses)) =
+eval env form@(List (Atom "case":key:clauses)) =
   if null clauses
     then throwError $ BadSpecialForm "no true clause in case expression: " form
     else case head clauses of
-           List (Atom "else" : exprs) -> fmap last (mapM eval exprs)
+           List (Atom "else" : exprs) -> fmap last (mapM (eval env) exprs)
            List (List datums : exprs) -> do
-             result <- eval key
+             result <- eval env key
              equality <- mapM (\x -> eqv [result, x]) datums
              if Bool True `elem` equality
-               then fmap last (mapM eval exprs)
-               else eval $ List (Atom "case" : key : tail clauses)
+               then fmap last (mapM (eval env) exprs)
+               else eval env $ List (Atom "case" : key : tail clauses)
            _ -> throwError $ BadSpecialForm "ill-formed case expression: " form
-eval (List (Atom func : args)) = mapM eval args >>= apply func
-eval badForm = throwError $ BadSpecialForm "Unrecognized special form" badForm
+eval env (List [Atom "set!", Atom var, form]) =
+  eval env form >>= setVar env var
+eval env (List [Atom "define", Atom var, form]) =
+  eval env form >>= defineVar env var
+eval env (List (Atom func : args)) = mapM (eval env) args >>= liftThrows . apply func
+eval _ badForm = throwError $ BadSpecialForm "Unrecognized special form" badForm
 
 apply :: String -> [LispVal] -> ThrowsError LispVal
 apply func args = maybe (throwError $ NotFunction "Unrecognized primitive function args" func)
@@ -480,6 +492,8 @@ eqvList eqvFunc [List arg1, List arg2] = return $ Bool $ length arg1 == length a
           Left _ -> False
           Right (Bool val) -> val
 
+-- Error
+
 data LispError = NumArgs Integer [LispVal]
                | TypeMismatch String LispVal
                | Parser ParseError
@@ -513,11 +527,11 @@ flushStr str = putStr str >> hFlush stdout
 readPrompt :: String -> IO String
 readPrompt prompt = flushStr prompt >> getLine
 
-evalString :: String -> IO String
-evalString expr = return $ extractValue $ trapError (fmap show $ readExpr expr >>= eval)
+evalString :: Env -> String -> IO String
+evalString env expr = return $ extractValue $ trapError (fmap show $ readExpr expr >>= eval env)
 
-evalAndPrint :: String -> IO ()
-evalAndPrint expr = evalString expr >>= putStrLn
+evalAndPrint :: Env -> String -> IO ()
+evalAndPrint env expr = evalString env expr >>= putStrLn
 
 until_ :: Monad m => (a -> Bool) -> m a -> (a -> m ()) -> m ()
 until_ pred prompt action = do
@@ -526,6 +540,55 @@ until_ pred prompt action = do
 
 runRepl :: IO ()
 runRepl = until_ (== "quit") (readPrompt "Lisp>>> ") evalAndPrint
+
+-- Env
+
+type Env = IORef [(String, IORef LispVal)]
+
+nullEnv :: IO Env
+nullEnv = newIORef []
+
+type IOThrowsError = ExceptT LispError IO
+
+liftThrows :: ThrowsError a -> IOThrowsError a
+liftThrows (Left err) = throwError err
+liftThrows (Right val) = return val
+
+runIOThrows :: IOThrowsError String -> IO String
+runIOThrows action = fmap extractValue (runExceptT (trapError action))
+
+isBound :: Env -> String -> IO Bool
+isBound envRef var = fmap (isJust . lookup var) (readIORef envRef)
+
+getVar :: Env -> String -> IOThrowsError LispVal
+getVar envRef var = do env <- liftIO $ readIORef envRef
+                       maybe (throwError $ UnboundVar "Getting an unbound variable: " var)
+                         (liftIO . readIORef)
+                         (lookup var env)
+
+setVar :: Env -> String -> LispVal -> IOThrowsError LispVal
+setVar envRef var value = do env <- liftIO $ readIORef envRef
+                             maybe (throwError $ UnboundVar "Setting an unbound variable: " var)
+                               (liftIO . flip writeIORef value)
+                               (lookup var env)
+                             return value
+
+defineVar :: Env -> String -> LispVal -> IOThrowsError LispVal
+defineVar envRef var value = do
+  alreadyDefined <- liftIO $ isBound envRef var
+  if alreadyDefined
+    then setVar envRef var value >> return value
+    else liftIO $ do
+      valueRef <- newIORef value
+      env <- readIORef envRef
+      writeIORef envRef ((var, valueRef) : env)
+      return value
+
+bindVars :: Env -> [(String, LispVal)] -> IO Env
+bindVars envRef bindings = readIORef envRef >>= extendEnv bindings >>= newIORef
+  where extendEnv bindings env = fmap (++ env) (mapM addBinding bindings)
+        addBinding (var, value) = do ref <- newIORef value
+                                     return (var, ref)
 
 main :: IO ()
 main = do args <- getArgs
