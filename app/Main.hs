@@ -332,7 +332,7 @@ stringAppend' notStr _ = throwError $ TypeMismatch "string" notStr
 stringList :: [LispVal] -> ThrowsError LispVal
 stringList [String s] = return $ List $ fmap Character s
 stringList [notStr] = throwError $ TypeMismatch "string" notStr
-stringList argList = throwError $ WrongNumberOfArgs "1" $ show . length $ argList
+stringList argList = throwError $ NumArgs 1 argList
 
 listString :: [LispVal] -> ThrowsError LispVal
 listString [list@(List xs)] = if all isCharacter xs
@@ -340,12 +340,12 @@ listString [list@(List xs)] = if all isCharacter xs
                        else throwError $ TypeMismatch "character list" list
   where isCharacter (Character _) = True
         isCharacter _ = False
-listString argList = throwError $ WrongNumberOfArgs "1" $ show . length $ argList
+listString argList = throwError $ NumArgs 1 argList
 
 stringCopy :: [LispVal] -> ThrowsError LispVal
 stringCopy [String str] = return $ String $ foldr (:) [] str
 stringCopy [notStr] = throwError $ TypeMismatch "string" notStr
-stringCopy argList = throwError $ WrongNumberOfArgs "1" $ show . length $ argList
+stringCopy argList = throwError $ NumArgs 1 argList
 
 stringFill :: [LispVal] -> ThrowsError LispVal
 stringFill [String str, Character c] = return $ String $ stringFill' str c
@@ -353,7 +353,7 @@ stringFill [String str, Character c] = return $ String $ stringFill' str c
         stringFill' str c = c:stringFill' (tail str) c
 stringFill [String _, notChar] = throwError $ TypeMismatch "character" notChar
 stringFill [notStr, _] = throwError $ TypeMismatch "string" notStr
-stringFill argList = throwError $ WrongNumberOfArgs "2" $ show . length $ argList
+stringFill argList = throwError $ NumArgs 2 argList
 
 numBoolBinop = boolBinop unpackNum
 strBoolBinop = boolBinop unpackStr
@@ -382,17 +382,17 @@ isSym :: [LispVal] -> ThrowsError LispVal
 isSym [Atom _] = return $ Bool True
 isSym xs = case length xs of
              1 -> return $ Bool False
-             n -> throwError $ WrongNumberOfArgs "1" $ show n
+             _ -> throwError $ NumArgs 1 xs
 
 symbolToString :: [LispVal] -> ThrowsError LispVal
 symbolToString [Atom x] = return $ String x
 symbolToString [notSym] = throwError $ TypeMismatch "symbol" notSym
-symbolToString xs = throwError $ WrongNumberOfArgs "1" $ show . length $ xs
+symbolToString xs = throwError $ NumArgs 1 xs
 
 stringToSymbol :: [LispVal] -> ThrowsError LispVal
 stringToSymbol [String x] = return $ Atom x
 stringToSymbol [notString] = throwError $ TypeMismatch "string" notString
-stringToSymbol xs = throwError $ WrongNumberOfArgs "1" $ show . length $ xs
+stringToSymbol xs = throwError $ NumArgs 1 xs
 
 isString :: [LispVal]  -> ThrowsError LispVal
 isString [String _] = return $ Bool True
@@ -485,7 +485,6 @@ data LispError = NumArgs Integer [LispVal]
                | BadSpecialForm String LispVal
                | NotFunction String String
                | UnboundVar String String
-               | WrongNumberOfArgs String String
                | Otherwise String
 
 showError :: LispError -> String
@@ -496,7 +495,6 @@ showError (NumArgs expected found) = "Expected " ++ show expected
                                      ++ " args: found valued " ++ unwordsList found
 showError (TypeMismatch expected found) = "Invalid type: expected " ++ expected ++ ", found " ++ show found
 showError (Parser parseErr) = "Parse error at " ++ show parseErr
-showError (WrongNumberOfArgs expected actual) = "Wrong number of arguments: requires " ++ expected ++ ", but got " ++ actual
 showError (Otherwise message) = message
 
 instance Show LispError where show = showError
