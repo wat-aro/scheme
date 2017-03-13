@@ -285,6 +285,7 @@ primitives = [("+", numericBinop (+)),
               ("string->list", stringList),
               ("list->string", listString),
               ("string-copy", stringCopy),
+              ("string-fill!", stringFill),
               ("car", car),
               ("cdr", cdr),
               ("cons", cons),
@@ -342,9 +343,17 @@ listString [list@(List xs)] = if all isCharacter xs
 listString argList = throwError $ WrongNumberOfArgs "1" $ show . length $ argList
 
 stringCopy :: [LispVal] -> ThrowsError LispVal
-stringCopy [String x] = return $ String x
+stringCopy [String str] = return $ String $ foldr (:) [] str
 stringCopy [notStr] = throwError $ TypeMismatch "string" notStr
 stringCopy argList = throwError $ WrongNumberOfArgs "1" $ show . length $ argList
+
+stringFill :: [LispVal] -> ThrowsError LispVal
+stringFill [String str, Character c] = return $ String $ stringFill' str c
+  where stringFill' [] c = []
+        stringFill' str c = c:stringFill' (tail str) c
+stringFill [String _, notChar] = throwError $ TypeMismatch "character" notChar
+stringFill [notStr, _] = throwError $ TypeMismatch "string" notStr
+stringFill argList = throwError $ WrongNumberOfArgs "2" $ show . length $ argList
 
 numBoolBinop = boolBinop unpackNum
 strBoolBinop = boolBinop unpackStr
