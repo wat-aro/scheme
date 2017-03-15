@@ -226,17 +226,20 @@ eval env (List [Atom "if", pred, conseq, alt]) =
      case result of
        Bool False -> eval env alt
        _ -> eval env conseq
-eval env (List (Atom "cond":cs)) = do
-  b <- fmap (take 1 . dropWhile f) (mapM condClause cs) >>= cdr
-  car [b] >>= eval env
-  where condClause (List [p, b]) = do q <- eval env p
-                                      case q of
-                                        Bool _ -> return $ List [q, b]
-                                        _      -> throwError $ TypeMismatch "bool" q
-        condClause v             = throwError $ TypeMismatch "(pred body)" v
-        f (List [p, _])          =  case p of
-                                      (Bool False) -> True
-                                      _            -> False
+eval env (List (Atom "cond" : expr : rest)) =  do
+  eval' expr rest
+  where eval' (List [cond, value]) (x : xs) = do
+          result <- eval env cond
+          case result of
+            Bool False -> eval' x xs
+            _          -> eval env value
+        eval' (List [Atom "else", value]) [] = do
+          eval env value
+        eval' (List [cond, value]) [] = do
+          result <- eval env cond
+          case result of
+            Bool False -> return $ Atom "#<undef>"
+            _          -> eval env value
 eval env form@(List (Atom "case":key:clauses)) =
   if null clauses
     then throwError $ BadSpecialForm "no true clause in case expression: " form
@@ -244,7 +247,7 @@ eval env form@(List (Atom "case":key:clauses)) =
            List (Atom "else" : exprs) -> fmap last (mapM (eval env) exprs)
            List (List datums : exprs) -> do
              result <- eval env key
-             equality <- mapM (\x -> eqv [result, x]) datums
+             equality <- liftThrows $ mapM (\x -> eqv [result, x]) datums
              if Bool True `elem` equality
                then fmap last (mapM (eval env) exprs)
                else eval env $ List (Atom "case" : key : tail clauses)
@@ -528,7 +531,7 @@ readPrompt :: String -> IO String
 readPrompt prompt = flushStr prompt >> getLine
 
 evalString :: Env -> String -> IO String
-evalString env expr = return $ extractValue $ trapError (fmap show $ readExpr expr >>= eval env)
+evalString env expr = runIOThrows $ fmap show $ liftThrows (readExpr expr) >>= eval env
 
 evalAndPrint :: Env -> String -> IO ()
 evalAndPrint env expr = evalString env expr >>= putStrLn
@@ -539,7 +542,7 @@ until_ pred prompt action = do
   unless (pred result) $ action result >> until_ pred prompt action
 
 runRepl :: IO ()
-runRepl = until_ (== "quit") (readPrompt "Lisp>>> ") evalAndPrint
+runRepl = nullEnv >>= until_ (== "quit") (readPrompt "Lisp>>> ") . evalAndPrint
 
 -- Env
 
@@ -590,9 +593,12 @@ bindVars envRef bindings = readIORef envRef >>= extendEnv bindings >>= newIORef
         addBinding (var, value) = do ref <- newIORef value
                                      return (var, ref)
 
+runOne :: String -> IO ()
+runOne expr = nullEnv >>= flip evalAndPrint expr
+
 main :: IO ()
 main = do args <- getArgs
           case length args of
             0 -> runRepl
-            1 -> evalAndPrint $ head args
+            1 -> runOne $ head args
             _ -> putStrLn "Program takes only 0 or 1 argument"
