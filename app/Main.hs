@@ -89,16 +89,29 @@ data LispVal = Atom String
 
 instance Eq LispVal where
   Atom x == Atom x' = x == x'
+  Atom _ == _ = False
   List xs == List xs' = xs == xs'
+  List _ == _ = False
   DottedList xs x == DottedList xs' x' = xs == xs' && x == x'
+  DottedList _ _ == _ = False
   Number n == Number n' = n == n'
+  Number _ == _ = False
   Float x == Float x' = x == x'
+  Float _ == _ = False
   Bool b == Bool b' = b == b'
+  String s == String s' = s == s'
+  String _ == _ = False
+  Bool _ == _ = False
   Character c == Character c' = c == c'
+  Character _ == _ = False
   Ratio r == Ratio r' = r == r'
+  Ratio _ == _ = False
   Complex c == Complex c' = c == c'
+  Complex _ == _ = False
+  PrimitiveFunc _ == _ = False
   Func params vararg body closure == Func params' vararg' body' closure' =
     params == params' && vararg == vararg' && body == body' && closure == closure'
+  Func {} == _ = False
 
 -- Parser
 
