@@ -15,7 +15,7 @@ import Control.Monad.Except
 import System.IO
 
 symbol :: Parser Char
-symbol = oneOf "!$%&|*+-/:<=>?@^_~"
+symbol = oneOf "!$%&|*+-/:<=>?@^_~,"
 
 readExpr :: String -> ThrowsError LispVal
 readExpr = readOrThrow parseExpr
@@ -252,6 +252,8 @@ parseUnquoteSpliced = do string ",@"
 
 parseExpr :: Parser LispVal
 parseExpr =     parseAtom
+            <|> try parseQuasiQuoted
+            <|> try parseQuoted
             <|> parseString
             <|> try parseFloat
             <|> try parseRatio
@@ -259,8 +261,6 @@ parseExpr =     parseAtom
             <|> try parseNumber
             <|> try parseBool
             <|> try parseCharacter
-            <|> try parseQuoted
-            <|> try parseQuasiQuoted
             <|> do char '('
                    x <- try parseList <|>  parseDottedList
                    char ')'
@@ -304,6 +304,14 @@ eval _ val@(Complex _) = return val
 eval _ val@(Bool _) = return val
 eval env (Atom id) = getVar env id
 eval _ (List [Atom "quote", val]) = return val
+eval env (List [Atom "backQuote", val]) =
+  case val of
+    List [Atom "unquote", _] -> evalUnquote val
+    List vals -> List <$> mapM evalUnquote vals
+    _ -> evalUnquote val
+  where
+    evalUnquote (List [Atom "unquote", val]) = eval env val
+    evalUnquote val = return val
 eval env (List [Atom "if", pred, conseq, alt]) =
   do result <- eval env pred
      case result of
