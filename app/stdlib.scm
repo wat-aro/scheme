@@ -134,3 +134,60 @@
                (cons x y)
                y))
          '() lst))
+
+(let ((a 1)
+      (b 2))
+  (+ a b))
+
+((lambda (a b)
+   (+ a b))
+ 1 2)
+
+(List (Atom "let")
+      :
+      (List (List (Atom "a")
+                  :
+                  (Number 1)
+                  :
+                  [])
+            :
+            (List (Atom "b")
+                  :
+                  (Number 2)
+                  :
+                  [])
+            :
+            [])
+      :
+      (List (Atom "+")
+            :
+            (Atom "a")
+            :
+            (Atom "b")
+            :
+            [])
+      :
+      [])
+
+(List (List (Atom "lambda")
+            :
+            (List (Atom "a")
+                  :
+                  (Atom "b")
+                  :
+                  [])
+            (List (Atom "+")
+                  :
+                  (Atom "a")
+                  :
+                  (Atom "b")
+                  :
+                  [])
+            :
+            [])
+      :
+      (Number 1)
+      :
+      (Number 2)
+      :
+      [])

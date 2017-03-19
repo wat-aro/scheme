@@ -349,6 +349,13 @@ eval env (List (Atom "lambda" : varargs@(Atom _) : body)) =
   makeVarargs varargs env [] body
 eval env (List [Atom "load", String filename]) =
   load filename >>= fmap last . mapM (eval env)
+-- bindings = [List LispVal]
+eval env (List (Atom "let" : List bindings : body)) =
+  eval env (List (List (Atom "lambda" : List (fmap fst' bindings) : body) : fmap snd' bindings))
+  where fst' :: LispVal -> LispVal
+        fst' (List (x:xs)) = x
+        snd' :: LispVal -> LispVal
+        snd' (List (x:y:xs)) = y
 eval env (List (function : args)) = do
   func <- eval env function
   argVals <- mapM (eval env) args
