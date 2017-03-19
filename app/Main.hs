@@ -84,6 +84,8 @@ data LispVal = Atom String
              | PrimitiveFunc ([LispVal] -> ThrowsError LispVal)
              | Func {params :: [String], vararg :: Maybe String,
                      body :: [LispVal],   closure :: Env}
+             | Macro {params :: [String], vararg :: Maybe String,
+                     body :: [LispVal],   closure :: Env}
              | IOFunc ([LispVal] -> IOThrowsError LispVal)
              | Port Handle
 
@@ -288,8 +290,14 @@ showVal Func {params = args, vararg = varargs, body = body, closure = env} =
   (case varargs of
      Nothing -> ""
      Just arg -> " . " ++ arg) ++ ") ...)"
+showVal Macro {params = args, vararg = varargs, body = body, closure = env} =
+  "(lambda (" ++ unwords (map show args) ++
+  (case varargs of
+     Nothing -> ""
+     Just arg -> " . " ++ arg) ++ ") ...)"
 showVal (Port _) = "<IO port>"
 showVal (IOFunc _) = "<IO primitive>"
+
 
 unwordsList :: [LispVal] -> String
 unwordsList = unwords . map showVal
@@ -349,6 +357,10 @@ eval env (List (Atom "define" : List (Atom var:params) : body)) =
   makeNormalFunc env params body >>= defineVar env var
 eval env (List (Atom "define" : DottedList (Atom var : params) varargs : body)) =
   makeVarargs varargs env params body >>= defineVar env var
+eval env (List (Atom "define-macro" : List (Atom var:params) : body)) =
+  makeNormalMacro env params body >>= defineVar env var
+eval env (List (Atom "define-macro" : DottedList (Atom var : params) varargs : body)) =
+  makeVarArgsMacro varargs env params body >>= defineVar env var
 eval env (List (Atom "lambda" : List params : body)) =
   makeNormalFunc env params body
 eval env (List (Atom "lambda" : DottedList params varargs : body)) =
@@ -372,6 +384,18 @@ eval _ badForm = throwError $ BadSpecialForm "Unrecognized special form" badForm
 
 apply :: LispVal -> [LispVal] -> IOThrowsError LispVal
 apply (PrimitiveFunc func) args = liftThrows $ func args
+apply (Macro params varargs body closure) args =
+  if num params /= num args && isNothing varargs
+    then throwError $ NumArgs (num params) args
+    else liftIO  (bindVars closure $ zip params args) >>= bindVarArgs varargs >>= evalMacro
+  where remainingArgs = drop (length params) args
+        num = toInteger . length
+        evalMacro env = do
+          evaled <- mapM (eval env) body
+          last <$> mapM (eval env) evaled
+        bindVarArgs arg env = case arg of
+          Just argName -> liftIO $ bindVars env [(argName, List remainingArgs)]
+          Nothing -> return env
 apply (Func params varargs body closure) args =
   if num params /= num args && isNothing varargs
     then throwError $ NumArgs (num params) args
@@ -693,6 +717,10 @@ bindVars envRef bindings = readIORef envRef >>= extendEnv bindings >>= newIORef
 makeFunc varargs env params body = return $ Func (map showVal params) varargs body env
 makeNormalFunc = makeFunc Nothing
 makeVarargs = makeFunc . Just . showVal
+
+makeMacro varargs env params body = return $ Macro (map showVal params) varargs body env
+makeNormalMacro = makeMacro Nothing
+makeVarArgsMacro = makeMacro . Just . showVal
 
 primitiveBindings :: IO Env
 primitiveBindings = nullEnv >>= flip bindVars (map (makeFunc IOFunc) ioPrimitives
